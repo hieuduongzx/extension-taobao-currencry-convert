@@ -1,77 +1,155 @@
-import { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   CURRENCY_OPTIONS,
   DEFAULT_CURRENCY,
+  DEFAULT_THEME,
   FALLBACK_RATES,
   STORAGE_KEYS,
+  filterCurrencyOptions,
+  formatConvertedMoney,
   formatExchangeRateDisplay,
+  formatUpdatedLabel,
+  getCurrencyOption,
   getRate,
+  loadStoredSettings,
   normalizeExchangeRates,
+  parseManualRateInput,
+  parseQuickAmountInput,
   sanitizeCurrencyPreference,
+  sanitizeThemeMode,
   type CurrencyCode,
-  type ExchangeRates
-} from "../shared";
+  type ExchangeRates,
+  type RuntimeMessage,
+  type ThemeMode
+} from "../shared/index.ts";
+import {
+  ArrowRightIcon,
+  CheckIcon,
+  ChevronDownIcon,
+  CopyIcon,
+  MonitorIcon,
+  MoonIcon,
+  PencilIcon,
+  RefreshIcon,
+  SearchIcon,
+  SunIcon,
+  XIcon
+} from "./Icons.tsx";
+import { Switch } from "./Switch.tsx";
+import { useApplyTheme } from "./useApplyTheme.ts";
 
-type SettingsResponse = {
-  currency?: CurrencyCode;
+interface SettingsResponse {
+  currency?: string;
   rates?: ExchangeRates;
   autoUpdate?: boolean;
+  theme?: ThemeMode;
+}
+
+interface StatusToast {
+  text: string;
+  tone: "ok" | "error";
+}
+
+const QUICK_PRESETS = ["50", "100", "500", "1000"] as const;
+
+const THEME_CYCLE: Record<ThemeMode, ThemeMode> = {
+  system: "light",
+  light: "dark",
+  dark: "system"
 };
 
-const IconArrowRight = () => (
-  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7m0 0l-7 7m7-7H3" />
-  </svg>
-);
-
-const IconRefresh = ({ className }: { className?: string }) => (
-  <svg className={`h-4 w-4 ${className}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-    <path
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      strokeWidth={2}
-      d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-    />
-  </svg>
-);
-
-const IconCurrency = () => (
-  <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-    <path
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      strokeWidth={2}
-      d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-    />
-  </svg>
-);
+const THEME_LABELS: Record<ThemeMode, string> = {
+  system: "Theme: System (click for Light)",
+  light: "Theme: Light (click for Dark)",
+  dark: "Theme: Dark (click for System)"
+};
 
 export function App() {
   const [currency, setCurrency] = useState<CurrencyCode>(DEFAULT_CURRENCY);
   const [rates, setRates] = useState<ExchangeRates>(() => normalizeExchangeRates(FALLBACK_RATES));
   const [autoUpdate, setAutoUpdate] = useState(true);
-  const [status, setStatus] = useState("");
+  const [theme, setTheme] = useState<ThemeMode>(DEFAULT_THEME);
+  const [status, setStatus] = useState<StatusToast | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [editingRate, setEditingRate] = useState<string | null>(null);
+  const [quickAmount, setQuickAmount] = useState("100");
+  const [copied, setCopied] = useState(false);
   const [currencyQuery, setCurrencyQuery] = useState("");
+  const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [highlightIndex, setHighlightIndex] = useState(0);
 
-  const filteredCurrencies = useMemo(() => {
-    const q = currencyQuery.trim().toLowerCase();
-    if (!q) {
-      return CURRENCY_OPTIONS;
-    }
-    return CURRENCY_OPTIONS.filter(
-      (c) => c.label.toLowerCase().includes(q) || c.code.toLowerCase().includes(q) || c.symbol.toLowerCase().includes(q)
-    );
-  }, [currencyQuery]);
+  const dropdownRef = useRef<HTMLDivElement | null>(null);
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
+  const listRef = useRef<HTMLDivElement | null>(null);
+  const statusTimerRef = useRef<number | null>(null);
+  const copyTimerRef = useRef<number | null>(null);
 
-  const updatedLabel = useMemo(() => {
-    if (!rates.updatedAt) {
-      return "Using fallback rates";
+  useApplyTheme(theme);
+
+  const flashStatus = useCallback((text: string, tone: "ok" | "error" = "ok") => {
+    setStatus({ text, tone });
+    if (statusTimerRef.current !== null) {
+      window.clearTimeout(statusTimerRef.current);
     }
-    const date = new Date(rates.updatedAt);
-    return `Updated: ${date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} Today`;
-  }, [rates.updatedAt]);
+    statusTimerRef.current = window.setTimeout(() => {
+      setStatus(null);
+      statusTimerRef.current = null;
+    }, 2200);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (statusTimerRef.current !== null) window.clearTimeout(statusTimerRef.current);
+      if (copyTimerRef.current !== null) window.clearTimeout(copyTimerRef.current);
+    };
+  }, []);
+
+  const filteredCurrencies = useMemo(() => filterCurrencyOptions(currencyQuery), [currencyQuery]);
+  const selectedOption = useMemo(
+    () => getCurrencyOption(currency) ?? CURRENCY_OPTIONS[0],
+    [currency]
+  );
+
+  const currentRateValue = getRate(rates, currency);
+  const formattedRate = useMemo(
+    () => formatExchangeRateDisplay(currency, currentRateValue),
+    [currency, currentRateValue]
+  );
+
+  const updatedLabel = useMemo(
+    () => formatUpdatedLabel(rates.updatedAt, rates.source),
+    [rates.updatedAt, rates.source]
+  );
+
+  const quickConvertedText = useMemo(() => {
+    const parsed = parseQuickAmountInput(quickAmount);
+    if (parsed === null) {
+      return "—";
+    }
+    return formatConvertedMoney(parsed, currency, rates);
+  }, [quickAmount, currency, rates]);
+
+  const statusDotClass = useMemo(() => {
+    if (!autoUpdate || rates.source === "manual") return "is-manual";
+    if (!rates.updatedAt || rates.source === "fallback") return "is-fallback";
+    return "is-live";
+  }, [autoUpdate, rates.source, rates.updatedAt]);
+
+  const headerSubtitle = useMemo(() => {
+    const modeLabel = !autoUpdate || rates.source === "manual" ? "Manual" : "Live";
+    return `${modeLabel} · 1 CNY = ${formattedRate} ${currency}`;
+  }, [autoUpdate, rates.source, formattedRate, currency]);
+
+  const logoSrc = useMemo(() => {
+    try {
+      if (typeof chrome !== "undefined" && chrome.runtime?.getURL) {
+        return chrome.runtime.getURL("public/icons/icon-128.png");
+      }
+    } catch {
+      // Fallback for non-extension preview
+    }
+    return "/icons/icon-128.png";
+  }, []);
 
   useEffect(() => {
     let disposed = false;
@@ -80,285 +158,533 @@ export function App() {
       try {
         const response = (await chrome.runtime.sendMessage({
           type: "tbcc:getSettings"
-        })) as SettingsResponse;
+        } satisfies RuntimeMessage)) as SettingsResponse | undefined;
 
-        if (disposed) return;
+        if (disposed || !response) return;
         setCurrency(sanitizeCurrencyPreference(response.currency));
         setRates(normalizeExchangeRates(response.rates ?? FALLBACK_RATES));
         setAutoUpdate(response.autoUpdate !== false);
+        setTheme(sanitizeThemeMode(response.theme));
       } catch {
-        const [syncData, localData] = await Promise.all([
-          chrome.storage.sync.get([STORAGE_KEYS.currency, STORAGE_KEYS.autoUpdate]),
-          chrome.storage.local.get([STORAGE_KEYS.rates])
-        ]);
-
+        const stored = await loadStoredSettings();
         if (disposed) return;
-        setCurrency(sanitizeCurrencyPreference(syncData[STORAGE_KEYS.currency]));
-        setRates(normalizeExchangeRates(localData[STORAGE_KEYS.rates]));
-        setAutoUpdate(syncData[STORAGE_KEYS.autoUpdate] !== false);
+        setCurrency(stored.currency);
+        setRates(stored.rates);
+        setAutoUpdate(stored.autoUpdate);
+        setTheme(stored.theme);
       }
     };
 
-    loadSettings();
+    void loadSettings();
+
+    const onStorageChange = (
+      changes: Record<string, chrome.storage.StorageChange>,
+      area: string
+    ) => {
+      if (area === "sync") {
+        if (changes[STORAGE_KEYS.currency]) {
+          setCurrency(sanitizeCurrencyPreference(changes[STORAGE_KEYS.currency].newValue));
+        }
+        if (changes[STORAGE_KEYS.autoUpdate]) {
+          setAutoUpdate(changes[STORAGE_KEYS.autoUpdate].newValue !== false);
+        }
+        if (changes[STORAGE_KEYS.theme]) {
+          setTheme(sanitizeThemeMode(changes[STORAGE_KEYS.theme].newValue));
+        }
+      } else if (area === "local" && changes[STORAGE_KEYS.rates]) {
+        setRates(normalizeExchangeRates(changes[STORAGE_KEYS.rates].newValue));
+      }
+    };
+
+    chrome.storage?.onChanged?.addListener(onStorageChange);
     return () => {
       disposed = true;
+      chrome.storage?.onChanged?.removeListener(onStorageChange);
     };
   }, []);
 
-  const onCurrencyChange = async (nextCurrency: CurrencyCode) => {
+  // Close dropdown on outside click or Escape
+  useEffect(() => {
+    if (!dropdownOpen) return;
+
+    const onMouseDown = (event: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setDropdownOpen(false);
+      }
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setDropdownOpen(false);
+      }
+    };
+
+    document.addEventListener("mousedown", onMouseDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", onMouseDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [dropdownOpen]);
+
+  // Focus search input and highlight selected currency when dropdown opens
+  useEffect(() => {
+    if (!dropdownOpen) return;
+    const selectedIdx = filteredCurrencies.findIndex((item) => item.code === currency);
+    setHighlightIndex(selectedIdx >= 0 ? selectedIdx : 0);
+    const id = window.setTimeout(() => searchInputRef.current?.focus(), 25);
+    return () => window.clearTimeout(id);
+  }, [dropdownOpen]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (highlightIndex >= filteredCurrencies.length) {
+      setHighlightIndex(0);
+    }
+  }, [filteredCurrencies, highlightIndex]);
+
+  useEffect(() => {
+    if (!dropdownOpen || !listRef.current) return;
+    const item = listRef.current.querySelector<HTMLElement>(`[data-idx="${highlightIndex}"]`);
+    item?.scrollIntoView({ block: "nearest" });
+  }, [highlightIndex, dropdownOpen]);
+
+  const handleCurrencyChange = async (nextCurrency: CurrencyCode) => {
     setCurrency(nextCurrency);
-    await chrome.runtime.sendMessage({
-      type: "tbcc:setCurrency",
-      currency: nextCurrency
-    });
     setEditingRate(null);
-    setStatus(`Switched to ${nextCurrency}`);
-    setTimeout(() => setStatus(""), 2000);
+    setDropdownOpen(false);
+    setCurrencyQuery("");
+    try {
+      await chrome.runtime.sendMessage({
+        type: "tbcc:setCurrency",
+        currency: nextCurrency
+      } satisfies RuntimeMessage);
+      flashStatus(`Switched to ${nextCurrency}`);
+    } catch {
+      flashStatus("Failed to save currency", "error");
+    }
   };
 
-  const onToggleAutoUpdate = async (enabled: boolean) => {
+  const handleSearchKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      setHighlightIndex((idx) => Math.min(idx + 1, filteredCurrencies.length - 1));
+    } else if (event.key === "ArrowUp") {
+      event.preventDefault();
+      setHighlightIndex((idx) => Math.max(idx - 1, 0));
+    } else if (event.key === "Enter") {
+      event.preventDefault();
+      const target = filteredCurrencies[highlightIndex];
+      if (target) {
+        void handleCurrencyChange(target.code as CurrencyCode);
+      }
+    }
+  };
+
+  const handleToggleAutoUpdate = async (enabled: boolean) => {
     setAutoUpdate(enabled);
-    await chrome.runtime.sendMessage({
-      type: "tbcc:setAutoUpdate",
-      enabled
-    });
-    setStatus(enabled ? "Auto-update enabled" : "Auto-update disabled");
-    setTimeout(() => setStatus(""), 2000);
+    try {
+      await chrome.runtime.sendMessage({
+        type: "tbcc:setAutoUpdate",
+        enabled
+      } satisfies RuntimeMessage);
+      flashStatus(enabled ? "Auto-update enabled" : "Auto-update paused");
+    } catch {
+      flashStatus("Failed to update setting", "error");
+    }
   };
 
-  const onRateSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleCycleTheme = async () => {
+    const nextTheme = THEME_CYCLE[theme];
+    setTheme(nextTheme);
+    try {
+      await chrome.runtime.sendMessage({
+        type: "tbcc:setTheme",
+        theme: nextTheme
+      } satisfies RuntimeMessage);
+      const name = nextTheme === "system" ? "System" : nextTheme === "light" ? "Light" : "Dark";
+      flashStatus(`Theme: ${name}`);
+    } catch {
+      flashStatus("Failed to save theme", "error");
+    }
+  };
+
+  const handleRateSubmit = async (event: React.FormEvent) => {
+    event.preventDefault();
     if (editingRate === null) return;
 
-    const cleanValue = editingRate.replace(/,/g, "");
-    const newRate = parseFloat(cleanValue);
-
-    if (isNaN(newRate) || newRate <= 0) {
-      setStatus("Invalid rate");
+    const parsed = parseManualRateInput(editingRate);
+    if (parsed === null) {
+      flashStatus("Enter a valid positive rate", "error");
       return;
     }
 
     try {
       const response = (await chrome.runtime.sendMessage({
         type: "tbcc:updateRate",
-        rate: newRate
-      })) as { ok: boolean; rates: ExchangeRates };
+        rate: parsed
+      } satisfies RuntimeMessage)) as { ok?: boolean; rates?: ExchangeRates } | undefined;
 
-      if (response.ok) {
+      if (response?.ok && response.rates) {
         setRates(normalizeExchangeRates(response.rates));
         setAutoUpdate(false);
         setEditingRate(null);
-        setStatus("Rate saved manually");
+        flashStatus("Manual rate saved");
+      } else {
+        flashStatus("Save failed", "error");
       }
     } catch {
-      setStatus("Save failed");
-    } finally {
-      setTimeout(() => setStatus(""), 2000);
+      flashStatus("Save failed", "error");
     }
   };
 
-  const onRefreshRate = async () => {
+  const handleRefreshRates = async () => {
+    if (isRefreshing) return;
     setIsRefreshing(true);
     try {
       const response = (await chrome.runtime.sendMessage({
         type: "tbcc:refreshRates"
-      })) as { ok?: boolean; rates?: ExchangeRates };
+      } satisfies RuntimeMessage)) as { ok?: boolean; rates?: ExchangeRates } | undefined;
 
       if (response?.ok && response.rates) {
         setRates(normalizeExchangeRates(response.rates));
-        setStatus("Exchange rates updated");
+        flashStatus("Exchange rates updated");
       } else {
-        setStatus("Refresh failed");
+        flashStatus("Refresh failed", "error");
       }
     } catch {
-      setStatus("Error connection");
+      flashStatus("Connection error", "error");
     } finally {
       setIsRefreshing(false);
-      setTimeout(() => setStatus(""), 2000);
     }
   };
 
-  const currentRateValue = getRate(rates, currency);
+  const handleCopyConverted = async () => {
+    if (quickConvertedText === "—") return;
+    try {
+      await navigator.clipboard.writeText(quickConvertedText);
+      setCopied(true);
+      flashStatus(`Copied ${quickConvertedText}`);
+      if (copyTimerRef.current !== null) window.clearTimeout(copyTimerRef.current);
+      copyTimerRef.current = window.setTimeout(() => {
+        setCopied(false);
+        copyTimerRef.current = null;
+      }, 1500);
+    } catch {
+      flashStatus("Copy unavailable", "error");
+    }
+  };
+
+  const renderThemeIcon = () => {
+    if (theme === "light") return <SunIcon size={15} />;
+    if (theme === "dark") return <MoonIcon size={15} />;
+    return <MonitorIcon size={15} />;
+  };
 
   return (
-    <div className="w-[360px] bg-zinc-950 text-zinc-50 font-sans selection:bg-orange-500/30 overflow-hidden relative">
-      <div className="absolute top-0 left-0 w-full h-48 bg-gradient-to-b from-orange-500/8 via-amber-500/4 to-transparent pointer-events-none" />
-      <div className="absolute top-[-60px] left-[-40px] w-36 h-36 bg-orange-600/15 blur-[80px] rounded-full pointer-events-none" />
-      <div className="absolute top-[-30px] right-[-30px] w-28 h-28 bg-amber-500/10 blur-[60px] rounded-full pointer-events-none" />
-
-      <div className="relative px-5 pt-5 pb-4 flex flex-col gap-4">
-        <header className="flex flex-col gap-3">
-          <div className="flex items-center justify-between gap-3">
-            <div className="flex items-center gap-3">
-              <div className="relative flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-orange-500 to-amber-600 text-white shadow-lg shadow-orange-500/25 border border-white/10 shrink-0">
-                <IconCurrency />
-                <div
-                  className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-zinc-950"
-                  style={{ backgroundColor: autoUpdate ? "#10b981" : "#f59e0b" }}
-                />
-              </div>
-              <div className="flex flex-col">
-                <span className="text-[15px] font-semibold tracking-tight text-white leading-tight">Taobao Convert</span>
-                <span className="text-[11px] font-medium text-zinc-500">40+ currencies · live rates</span>
-              </div>
+    <div className="popup-shell">
+      {/* 1. Fixed 1-line Header (TubeDeck2k standard) */}
+      <header className="popup-header">
+        <div className="popup-brand">
+          <img src={logoSrc} alt="Taobao Convert" className="popup-logo" />
+          <div className="popup-brand-info">
+            <div className="popup-title-row">
+              <span className="popup-title">Taobao Convert</span>
+              <span
+                className={`popup-status-dot ${statusDotClass}`}
+                title={
+                  statusDotClass === "is-live"
+                    ? "Live exchange rates active"
+                    : statusDotClass === "is-manual"
+                      ? "Manual exchange rate"
+                      : "Using offline fallback rates"
+                }
+              />
             </div>
+            <div className="popup-subtitle">{headerSubtitle}</div>
+          </div>
+        </div>
 
-            <div className="flex items-center gap-2">
-              <div
-                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider border transition-all duration-300 ${
-                  autoUpdate
-                    ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
-                    : "bg-amber-500/10 text-amber-400 border-amber-500/20"
-                }`}
-              >
-                <div className={`w-1.5 h-1.5 rounded-full ${autoUpdate ? "bg-emerald-400 animate-pulse" : "bg-amber-400"}`} />
-                {autoUpdate ? "LIVE" : "MANUAL"}
-              </div>
+        <div className="popup-header-actions">
+          <button
+            type="button"
+            className="popup-icon-btn"
+            onClick={() => void handleCycleTheme()}
+            title={THEME_LABELS[theme]}
+            aria-label={THEME_LABELS[theme]}
+          >
+            {renderThemeIcon()}
+          </button>
+          <button
+            type="button"
+            className="popup-icon-btn"
+            onClick={() => void handleRefreshRates()}
+            disabled={isRefreshing}
+            title="Refresh live exchange rates"
+            aria-label="Refresh live exchange rates"
+          >
+            <RefreshIcon size={15} className={isRefreshing ? "spin" : undefined} />
+          </button>
+        </div>
+      </header>
+
+      {/* 2. Main Body */}
+      <main className="popup-body">
+        {/* Card 1: Target Currency & Exchange Rate */}
+        <section className="popup-card" aria-label="Currency and exchange rate">
+          <div className="popup-section-head">
+            <span className="popup-section-title">Target Currency</span>
+            <div className="popup-inline-toggle">
+              <span className="popup-toggle-label">Auto-update</span>
+              <Switch
+                checked={autoUpdate}
+                onChange={(enabled) => void handleToggleAutoUpdate(enabled)}
+                ariaLabel="Toggle automatic exchange rate updates"
+              />
             </div>
           </div>
-          <div className="h-px w-full bg-gradient-to-r from-transparent via-orange-500/40 to-transparent" />
-        </header>
 
-        <div className="flex flex-col gap-3.5">
-          <div className="p-3.5 rounded-2xl bg-zinc-900/40 border border-white/5 flex flex-col gap-3">
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-500 shrink-0">Currency</span>
-              <div className="flex items-center gap-2">
-                <span className="text-[10px] uppercase font-semibold text-zinc-500">Auto</span>
-                <button
-                  type="button"
-                  onClick={() => onToggleAutoUpdate(!autoUpdate)}
-                  className={`relative inline-flex h-4 w-7 items-center rounded-full transition-colors ${
-                    autoUpdate ? "bg-orange-500" : "bg-zinc-800 border-white/8"
-                  }`}
-                >
-                  <span
-                    className={`inline-block h-2.5 w-2.5 transform rounded-full bg-white transition-transform ${
-                      autoUpdate ? "translate-x-4" : "translate-x-0.5"
-                    }`}
+          <div ref={dropdownRef} className="popup-picker">
+            <button
+              type="button"
+              onClick={() => setDropdownOpen((open) => !open)}
+              aria-haspopup="listbox"
+              aria-expanded={dropdownOpen}
+              className={`popup-picker-trigger ${dropdownOpen ? "is-open" : ""}`}
+            >
+              <span className="popup-symbol-badge">{selectedOption.symbol}</span>
+              <span className="popup-picker-text">
+                <span className="popup-picker-code">{selectedOption.code}</span>
+                <span className="popup-picker-name">{selectedOption.label}</span>
+              </span>
+              <span className={`popup-chevron ${dropdownOpen ? "is-open" : ""}`}>
+                <ChevronDownIcon size={15} />
+              </span>
+            </button>
+
+            {dropdownOpen && (
+              <div className="popup-dropdown" role="listbox" aria-label="Select target currency">
+                <div className="popup-search-wrap">
+                  <span className="popup-search-ic">
+                    <SearchIcon size={13} />
+                  </span>
+                  <input
+                    ref={searchInputRef}
+                    type="text"
+                    placeholder="Search code or currency..."
+                    value={currencyQuery}
+                    onChange={(event) => setCurrencyQuery(event.target.value)}
+                    onKeyDown={handleSearchKeyDown}
+                    className="popup-search-input"
+                    autoComplete="off"
+                    aria-label="Search currency"
                   />
-                </button>
+                  {currencyQuery && (
+                    <button
+                      type="button"
+                      className="popup-search-clear"
+                      onClick={() => setCurrencyQuery("")}
+                      aria-label="Clear search"
+                    >
+                      <XIcon size={12} />
+                    </button>
+                  )}
+                </div>
+
+                <div ref={listRef} className="popup-dropdown-list">
+                  {filteredCurrencies.length === 0 ? (
+                    <p className="popup-dropdown-empty">No matching currency.</p>
+                  ) : (
+                    filteredCurrencies.map((item, idx) => {
+                      const isSelected = currency === item.code;
+                      const isHighlighted = idx === highlightIndex;
+                      return (
+                        <button
+                          type="button"
+                          key={item.code}
+                          role="option"
+                          aria-selected={isSelected}
+                          data-idx={idx}
+                          onMouseEnter={() => setHighlightIndex(idx)}
+                          onClick={() => void handleCurrencyChange(item.code as CurrencyCode)}
+                          className={`popup-option ${
+                            isSelected ? "is-selected" : isHighlighted ? "is-highlighted" : ""
+                          }`}
+                        >
+                          <span className="popup-option-sym">{item.symbol}</span>
+                          <span className="popup-option-info">
+                            <span className="popup-option-code">{item.code}</span>
+                            <span className="popup-option-label">{item.label}</span>
+                          </span>
+                          {isSelected && (
+                            <span className="popup-option-check">
+                              <CheckIcon size={14} />
+                            </span>
+                          )}
+                        </button>
+                      );
+                    })
+                  )}
+                </div>
               </div>
-            </div>
-
-            <input
-              type="search"
-              placeholder="Search code or name…"
-              value={currencyQuery}
-              onChange={(e) => setCurrencyQuery(e.target.value)}
-              className="w-full h-9 rounded-lg bg-zinc-950/80 border border-white/8 px-3 text-[12px] text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:border-orange-500/50 focus:ring-1 focus:ring-orange-500/20"
-              autoComplete="off"
-            />
-
-            <div className="tbcc-scrollbar max-h-[200px] overflow-y-auto pl-0.5 pr-2 grid grid-cols-2 gap-1.5">
-              {filteredCurrencies.map((item) => (
-                <button
-                  type="button"
-                  key={item.code}
-                  onClick={() => onCurrencyChange(item.code)}
-                  className={`flex flex-col items-start justify-center rounded-xl border p-2.5 transition-all text-left min-h-[52px] ${
-                    currency === item.code
-                      ? "border-orange-500/50 bg-orange-500/10 text-white shadow-sm shadow-orange-500/10"
-                      : "border-white/5 bg-zinc-900/40 text-zinc-400 hover:bg-zinc-900/60 hover:border-white/10 hover:text-white"
-                  }`}
-                >
-                  <div className="flex items-center justify-between w-full gap-1 mb-0.5">
-                    <span className="text-[13px] font-bold leading-tight">{item.code}</span>
-                    <span className={`text-[14px] font-bold shrink-0 ${currency === item.code ? "text-orange-400" : "text-zinc-500"}`}>
-                      {item.symbol}
-                    </span>
-                  </div>
-                  <span className="text-[9px] font-medium text-zinc-500 line-clamp-2 leading-snug">{item.label}</span>
-                </button>
-              ))}
-            </div>
-            {filteredCurrencies.length === 0 && (
-              <p className="text-[11px] text-zinc-500 text-center py-2">No currency matches.</p>
             )}
           </div>
 
-          <div className="relative group overflow-hidden rounded-2xl bg-zinc-900/40 border border-white/5 transition-all duration-200 hover:bg-zinc-900/60 hover:border-white/8">
-            <div className="flex flex-col p-3.5 relative z-10 w-full">
-              <div className="flex items-center justify-between mb-3">
-                <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">Exchange Rate</span>
-                {autoUpdate && (
-                  <button
-                    type="button"
-                    onClick={onRefreshRate}
-                    disabled={isRefreshing}
-                    className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md text-orange-400 bg-orange-500/10 hover:bg-orange-500/20 transition-all disabled:opacity-50"
-                  >
-                    <IconRefresh className={isRefreshing ? "animate-spin w-3 h-3" : "w-3 h-3"} />
-                    {isRefreshing ? "Updating..." : "Refresh"}
-                  </button>
-                )}
-              </div>
+          <div className="popup-divider" />
 
-              <div className="flex items-center gap-2 mb-3 flex-wrap">
-                <span className="text-[16px] font-bold text-white leading-none">1</span>
-                <span className="text-[11px] font-medium text-zinc-500">CNY</span>
-                <div className="mx-1 text-zinc-600">
-                  <IconArrowRight />
+          <div className="popup-rate-row">
+            {editingRate !== null ? (
+              <form
+                onSubmit={(event) => void handleRateSubmit(event)}
+                className="popup-rate-form"
+              >
+                <span className="popup-rate-base">1 CNY =</span>
+                <input
+                  autoFocus
+                  type="text"
+                  inputMode="decimal"
+                  value={editingRate}
+                  onChange={(event) => setEditingRate(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Escape") {
+                      setEditingRate(null);
+                    }
+                  }}
+                  className="ui-input"
+                  aria-label="Custom exchange rate"
+                />
+                <button type="submit" className="ui-btn ui-btn--primary ui-btn--sm">
+                  Save
+                </button>
+                <button
+                  type="button"
+                  className="ui-btn ui-btn--ghost ui-btn--sm"
+                  onClick={() => setEditingRate(null)}
+                >
+                  Cancel
+                </button>
+              </form>
+            ) : (
+              <>
+                <div className="popup-rate-display">
+                  <span className="popup-rate-base">1 CNY</span>
+                  <span className="popup-rate-arrow">
+                    <ArrowRightIcon size={13} />
+                  </span>
+                  <span className="popup-rate-value">{formattedRate}</span>
+                  <span className="popup-rate-code">{currency}</span>
                 </div>
+                <button
+                  type="button"
+                  className="popup-rate-edit-btn"
+                  onClick={() => setEditingRate(currentRateValue.toString())}
+                  title="Set a custom exchange rate"
+                >
+                  <PencilIcon size={11} />
+                  <span>Edit</span>
+                </button>
+              </>
+            )}
+          </div>
 
-                {editingRate !== null ? (
-                  <form onSubmit={onRateSubmit} className="flex flex-1 items-center gap-2 min-w-[200px]">
-                    <input
-                      autoFocus
-                      type="text"
-                      value={editingRate}
-                      onChange={(e) => setEditingRate(e.target.value)}
-                      className="w-full h-8 rounded-lg bg-zinc-950/80 border border-white/8 px-2.5 text-[13px] text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:border-orange-500/50 focus:ring-1 focus:ring-orange-500/20 focus:bg-zinc-950 transition-all duration-200 font-mono"
-                    />
-                    <button
-                      type="submit"
-                      className="h-8 flex items-center justify-center text-[10px] font-bold text-emerald-400 bg-emerald-500/10 px-2.5 rounded-md border border-emerald-500/20 hover:bg-emerald-500/20 transition-colors"
-                    >
-                      SAVE
-                    </button>
-                  </form>
-                ) : (
-                  <div
-                    className="group flex flex-1 items-baseline gap-1.5 cursor-pointer relative min-w-0"
-                    onClick={() => setEditingRate(currentRateValue.toString())}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" || e.key === " ") {
-                        e.preventDefault();
-                        setEditingRate(currentRateValue.toString());
-                      }
-                    }}
-                    role="button"
-                    tabIndex={0}
-                  >
-                    <span className="text-[22px] sm:text-[26px] font-black text-orange-400 tracking-tight leading-none break-all">
-                      {formatExchangeRateDisplay(currency, currentRateValue)}
-                    </span>
-                    <span className="text-[11px] font-bold text-orange-500/60 uppercase shrink-0">{currency}</span>
-                    <span className="opacity-0 group-hover:opacity-100 text-[10px] font-medium text-zinc-500 ml-2 transition-opacity">
-                      Edit
-                    </span>
-                  </div>
-                )}
-              </div>
+          <div className="popup-rate-meta">
+            <span>{updatedLabel}</span>
+            <span
+              className={`popup-mode-pill ${
+                statusDotClass === "is-live"
+                  ? "is-live"
+                  : statusDotClass === "is-manual"
+                    ? "is-manual"
+                    : ""
+              }`}
+            >
+              {statusDotClass === "is-live"
+                ? "Live"
+                : statusDotClass === "is-manual"
+                  ? "Manual"
+                  : "Fallback"}
+            </span>
+          </div>
+        </section>
 
-              <div className="h-px bg-white/5 w-full mb-3" />
+        {/* Card 2: Quick Converter */}
+        <section className="popup-card" aria-label="Quick price converter">
+          <div className="popup-section-head">
+            <span className="popup-section-title">Quick Convert</span>
+            <span className="popup-toggle-label">CNY → {currency}</span>
+          </div>
 
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-[10px] text-zinc-500 font-medium">{updatedLabel}</span>
-                <span className="text-[10px] text-zinc-600 italic shrink-0">via OpenRate</span>
-              </div>
+          <div className="popup-calc-row">
+            <div className="popup-calc-input-wrap">
+              <span className="popup-calc-prefix">¥</span>
+              <input
+                type="text"
+                inputMode="decimal"
+                value={quickAmount}
+                onChange={(event) => setQuickAmount(event.target.value)}
+                placeholder="100"
+                className="popup-calc-input"
+                aria-label="Amount in Chinese Yuan"
+              />
+            </div>
+
+            <span className="popup-rate-arrow">
+              <ArrowRightIcon size={13} />
+            </span>
+
+            <div className="popup-calc-output">
+              <span className="popup-calc-result" title={quickConvertedText}>
+                {quickConvertedText}
+              </span>
+              <button
+                type="button"
+                className="popup-copy-btn"
+                onClick={() => void handleCopyConverted()}
+                title="Copy converted amount"
+                aria-label="Copy converted amount"
+              >
+                {copied ? <CheckIcon size={13} /> : <CopyIcon size={13} />}
+              </button>
             </div>
           </div>
-        </div>
 
-        <div className="flex flex-col items-center justify-center py-1 mt-2 min-h-[16px]">
-          {status && (
-            <p className="text-[11px] font-medium text-emerald-400 animate-in fade-in slide-in-from-bottom-1 max-w-[280px] truncate">
-              {status}
-            </p>
-          )}
-        </div>
-      </div>
+          <div className="popup-presets" role="group" aria-label="Quick CNY presets">
+            {QUICK_PRESETS.map((preset) => {
+              const isActive = quickAmount.trim() === preset;
+              return (
+                <button
+                  key={preset}
+                  type="button"
+                  className={`popup-preset-btn ${isActive ? "is-active" : ""}`}
+                  onClick={() => setQuickAmount(preset)}
+                >
+                  ¥{Number(preset).toLocaleString("en-US")}
+                </button>
+              );
+            })}
+          </div>
+        </section>
+      </main>
+
+      {/* 3. Clean 1-row Footer (zero line-wrapping) */}
+      <footer className="popup-footer">
+        <span
+          className={`popup-footer-status ${
+            status ? (status.tone === "error" ? "is-error" : "is-accent") : ""
+          }`}
+          role="status"
+          aria-live="polite"
+        >
+          {status ? status.text : `${CURRENCY_OPTIONS.length} currencies · open.er-api`}
+        </span>
+        <button
+          type="button"
+          className="popup-footer-btn"
+          onClick={() => void handleRefreshRates()}
+          disabled={isRefreshing}
+        >
+          <RefreshIcon size={13} className={isRefreshing ? "spin" : undefined} />
+          <span>{isRefreshing ? "Updating..." : "Refresh"}</span>
+        </button>
+      </footer>
     </div>
   );
 }

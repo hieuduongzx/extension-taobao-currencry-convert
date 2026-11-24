@@ -2,67 +2,96 @@ import {
   DEFAULT_CURRENCY,
   FALLBACK_RATES,
   STORAGE_KEYS,
+  containsCny,
+  convertPriceText,
+  extractAmountFromText,
   formatConvertedMoney,
+  formatExchangeRateDisplay,
   getRate,
   isCurrencyCode,
+  isCurrencySymbolText,
+  isStrictAmount,
+  loadStoredSettings,
   normalizeExchangeRates,
   sanitizeCurrencyPreference,
   type CurrencyCode,
-  type ExchangeRates
-} from "./shared";
+  type ExchangeRates,
+  type RuntimeMessage
+} from "./shared/index.ts";
 
-const CNY_IN_TEXT_PATTERN = /[\u00A5\uFFE5]|\b\d[\d,.]*\s*\u5143/;
-const CNY_PRICE_PATTERN =
-  /(\u00A5|\uFFE5)\s*([0-9]+(?:,[0-9]{3})*(?:\.[0-9]+)?)|([0-9]+(?:,[0-9]{3})*(?:\.[0-9]+)?)\s*\u5143/g;
-const NUMBER_PATTERN = /[0-9]+(?:,[0-9]{3})*(?:\.[0-9]+)?/;
+const BADGE_STYLE_ID = "tbcc-price-badge-styles";
+const BADGE_CLASS = "tbcc-price-badge";
+const BLOCKED_TAGS = new Set(["SCRIPT", "STYLE", "NOSCRIPT", "TEXTAREA", "INPUT"]);
 
 const trackedNodes = new Map<Text, string>();
 const structuredAmountNodes = new Set<HTMLElement>();
 const structuredMarkers = new WeakMap<HTMLElement, HTMLElement>();
+
 let selectedCurrency: CurrencyCode = DEFAULT_CURRENCY;
 let rates: ExchangeRates = normalizeExchangeRates(FALLBACK_RATES);
 let isApplyingConversion = false;
 
-function containsCny(text: string): boolean {
-  return CNY_IN_TEXT_PATTERN.test(text);
-}
-
-function parseAmount(amountText: string): number | null {
-  const normalized = amountText.replaceAll(",", "");
-  const value = Number.parseFloat(normalized);
-  return Number.isFinite(value) ? value : null;
-}
-
-function extractAmountFromText(text: string): number | null {
-  const match = text.match(NUMBER_PATTERN);
-  if (!match) {
-    return null;
+/** Injects a clean *2k-style uniform 1px hairline pill stylesheet once per document. */
+function ensureBadgeStyles(): void {
+  if (document.getElementById(BADGE_STYLE_ID)) {
+    return;
   }
-  return parseAmount(match[0]);
+  const style = document.createElement("style");
+  style.id = BADGE_STYLE_ID;
+  style.textContent = `
+.${BADGE_CLASS} {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 6px;
+  border: 1px solid rgba(234, 88, 12, 0.24);
+  background-color: rgba(249, 115, 22, 0.09);
+  color: #c2410c;
+  font-family: "Segoe UI Variable", "Segoe UI", Inter, system-ui, sans-serif;
+  font-size: clamp(11px, 0.72em, 13px);
+  font-weight: 600;
+  line-height: 1.35;
+  letter-spacing: 0.01em;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  vertical-align: middle;
+  text-decoration: none;
+  box-sizing: border-box;
+}
+.${BADGE_CLASS}[data-tbcc-surface="dark"] {
+  border-color: rgba(251, 146, 60, 0.34);
+  background-color: rgba(249, 115, 22, 0.16);
+  color: #fdba74;
+}
+`;
+  (document.head || document.documentElement).appendChild(style);
 }
 
-function formatConvertedAmount(cnyAmount: number): string {
-  return formatConvertedMoney(cnyAmount, selectedCurrency, rates);
-}
-
-function convertText(text: string): string {
-  const convertedPricePattern = /\s*≈[^≈]*/g;
-  let result = text.replace(convertedPricePattern, "");
-
-  return result.replace(CNY_PRICE_PATTERN, (match, symbol, amountFromSymbol, amountFromYuan) => {
-    const amountText = (amountFromSymbol || amountFromYuan) as string;
-    const amount = parseAmount(amountText);
-    if (amount === null) {
-      return match;
+/** Detects whether an element sits on a dark background surface for crisp badge contrast. */
+function detectSurfaceTone(element: HTMLElement): "light" | "dark" {
+  let cursor: HTMLElement | null = element;
+  while (cursor) {
+    const bg = window.getComputedStyle(cursor).backgroundColor;
+    const match = bg.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?\)/);
+    if (match) {
+      const alpha = match[4] === undefined ? 1 : Number.parseFloat(match[4]);
+      if (alpha > 0.25) {
+        const r = Number(match[1]);
+        const g = Number(match[2]);
+        const b = Number(match[3]);
+        const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+        return luminance < 0.45 ? "dark" : "light";
+      }
     }
-
-    return `${match} ≈ ${formatConvertedAmount(amount)}`;
-  });
+    cursor = cursor.parentElement;
+  }
+  return "light";
 }
 
-function isCurrencySymbolText(text: string): boolean {
-  const normalized = text.trim();
-  return normalized === "\u00A5" || normalized === "\uFFE5";
+function buildBadgeTooltip(): string {
+  const rateText = formatExchangeRateDisplay(selectedCurrency, getRate(rates, selectedCurrency));
+  return `1 CNY = ${rateText} ${selectedCurrency} · Taobao Convert`;
 }
 
 function findNearbySymbolElement(amountElement: HTMLElement): HTMLElement | null {
@@ -78,7 +107,7 @@ function findNearbySymbolElement(amountElement: HTMLElement): HTMLElement | null
   return null;
 }
 
-function applyStructuredConversion(amountElement: HTMLElement) {
+function applyStructuredConversion(amountElement: HTMLElement): void {
   const symbolElement = findNearbySymbolElement(amountElement);
   if (!amountElement.isConnected || !symbolElement) {
     structuredAmountNodes.delete(amountElement);
@@ -102,36 +131,39 @@ function applyStructuredConversion(amountElement: HTMLElement) {
   const container = amountElement.parentElement;
   if (container) {
     const allMarkers = container.querySelectorAll('[data-tbcc-structured-marker="1"]');
-    for (let i = 0; i < allMarkers.length; i++) {
-      const m = allMarkers[i] as HTMLElement;
-      if (m === marker) continue;
-      const prev = m.previousElementSibling;
-      if (prev && structuredMarkers.get(prev as HTMLElement) === m) {
+    for (let i = 0; i < allMarkers.length; i += 1) {
+      const candidate = allMarkers[i] as HTMLElement;
+      if (candidate === marker) continue;
+      const prev = candidate.previousElementSibling;
+      if (prev && structuredMarkers.get(prev as HTMLElement) === candidate) {
         continue;
       }
-      m.remove();
+      candidate.remove();
     }
   }
 
+  const formattedText = `≈ ${formatConvertedMoney(amount, selectedCurrency, rates)}`;
+  const tooltip = buildBadgeTooltip();
+
   if (marker) {
-    marker.textContent = `≈ ${formatConvertedAmount(amount)}`;
+    marker.className = BADGE_CLASS;
+    marker.dataset.tbccSurface = detectSurfaceTone(amountElement);
+    marker.title = tooltip;
+    marker.textContent = formattedText;
     return;
   }
 
   if (container) {
+    ensureBadgeStyles();
     marker = document.createElement("span");
+    marker.className = BADGE_CLASS;
     marker.dataset.tbccStructuredMarker = "1";
-    marker.style.marginLeft = "6px";
-    marker.style.fontSize = "0.85em";
-    marker.style.fontWeight = "600";
-    marker.style.color = "#3b82f6";
-    marker.style.opacity = "0.9";
-    marker.style.whiteSpace = "nowrap";
-    marker.textContent = `≈ ${formatConvertedAmount(amount)}`;
+    marker.dataset.tbccSurface = detectSurfaceTone(amountElement);
+    marker.title = tooltip;
+    marker.textContent = formattedText;
     amountElement.insertAdjacentElement("afterend", marker);
-
-      structuredMarkers.set(amountElement, marker);
-    }
+    structuredMarkers.set(amountElement, marker);
+  }
 }
 
 function findStructuredAmountNode(textNode: Text): HTMLElement | null {
@@ -158,27 +190,24 @@ function findStructuredAmountNode(textNode: Text): HTMLElement | null {
     }
   }
 
-  if (isStrictAmount(text) && extractAmountFromText(text) !== null && parent instanceof HTMLElement && findNearbySymbolElement(parent)) {
+  if (
+    isStrictAmount(text) &&
+    extractAmountFromText(text) !== null &&
+    findNearbySymbolElement(parent)
+  ) {
     return parent;
   }
 
   return null;
 }
 
-function trackStructuredByTextNode(textNode: Text) {
+function trackStructuredByTextNode(textNode: Text): void {
   const amountNode = findStructuredAmountNode(textNode);
   if (!amountNode) {
     return;
   }
-
   structuredAmountNodes.add(amountNode);
   applyStructuredConversion(amountNode);
-}
-
-function isStrictAmount(text: string): boolean {
-  const trimmed = text.trim();
-  if (!trimmed) return false;
-  return /^[\d,.\s-]+$/.test(trimmed) && /\d/.test(trimmed);
 }
 
 function isTextNodeEligible(node: Text): boolean {
@@ -187,29 +216,24 @@ function isTextNodeEligible(node: Text): boolean {
   }
 
   const parent = node.parentElement;
-  if (!parent) {
+  if (!parent || parent.dataset.tbccStructuredMarker === "1") {
     return false;
   }
 
-  const blockedTags = ["SCRIPT", "STYLE", "NOSCRIPT", "TEXTAREA", "INPUT"];
-  if (blockedTags.includes(parent.tagName)) {
-    return false;
-  }
-
-  if (parent.isContentEditable) {
+  if (BLOCKED_TAGS.has(parent.tagName) || parent.isContentEditable) {
     return false;
   }
 
   return true;
 }
 
-function applyConversionToNode(node: Text) {
+function applyConversionToNode(node: Text): void {
   const originalText = trackedNodes.get(node);
   if (!originalText) {
     return;
   }
 
-  const convertedText = convertText(originalText);
+  const convertedText = convertPriceText(originalText, selectedCurrency, rates);
   if (node.nodeValue === convertedText) {
     return;
   }
@@ -219,7 +243,7 @@ function applyConversionToNode(node: Text) {
   isApplyingConversion = false;
 }
 
-function trackAndConvert(node: Text) {
+function trackAndConvert(node: Text): void {
   if (!isTextNodeEligible(node)) {
     return;
   }
@@ -235,17 +259,17 @@ function trackAndConvert(node: Text) {
   applyConversionToNode(node);
 }
 
-function scanNodeTree(root: Node) {
+function scanNodeTree(root: Node | null): void {
+  if (!root) return;
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
   let current = walker.nextNode();
   while (current) {
-    const textNode = current as Text;
-    trackAndConvert(textNode);
+    trackAndConvert(current as Text);
     current = walker.nextNode();
   }
 }
 
-function applyToTrackedNodes() {
+function applyToTrackedNodes(): void {
   for (const [node] of trackedNodes) {
     if (!node.isConnected) {
       trackedNodes.delete(node);
@@ -263,7 +287,7 @@ function applyToTrackedNodes() {
   }
 }
 
-function observeDom() {
+function observeDom(): void {
   const observer = new MutationObserver((mutations) => {
     if (isApplyingConversion) {
       return;
@@ -275,7 +299,10 @@ function observeDom() {
           if (node.nodeType === Node.TEXT_NODE) {
             trackAndConvert(node as Text);
           } else if (node.nodeType === Node.ELEMENT_NODE) {
-            scanNodeTree(node);
+            const el = node as HTMLElement;
+            if (el.dataset.tbccStructuredMarker !== "1") {
+              scanNodeTree(el);
+            }
           }
         }
       }
@@ -287,7 +314,7 @@ function observeDom() {
         trackStructuredByTextNode(node);
 
         const original = trackedNodes.get(node);
-        if (original && latestText === convertText(original)) {
+        if (original && latestText === convertPriceText(original, selectedCurrency, rates)) {
           continue;
         }
 
@@ -310,61 +337,54 @@ function observeDom() {
   });
 }
 
-function ratesAreUsable(r: ExchangeRates, currency: CurrencyCode): boolean {
-  return Number.isFinite(getRate(r, currency));
+function ratesAreUsable(nextRates: ExchangeRates, currency: CurrencyCode): boolean {
+  return Number.isFinite(getRate(nextRates, currency));
 }
 
-async function loadSettingsFromBackground(): Promise<void> {
+async function loadInitialSettings(): Promise<void> {
   try {
     const response = (await chrome.runtime.sendMessage({
       type: "tbcc:getSettings"
-    })) as
-      | {
-          currency?: CurrencyCode;
-          rates?: ExchangeRates;
-        }
+    } satisfies RuntimeMessage)) as
+      | { currency?: string; rates?: ExchangeRates }
       | undefined;
 
     if (response?.currency && isCurrencyCode(response.currency)) {
       selectedCurrency = response.currency;
     }
 
-    if (response?.rates && ratesAreUsable(response.rates, selectedCurrency)) {
-      rates = normalizeExchangeRates(response.rates);
+    if (response?.rates) {
+      const normalized = normalizeExchangeRates(response.rates);
+      if (ratesAreUsable(normalized, selectedCurrency)) {
+        rates = normalized;
+      }
     }
   } catch {
-    const [syncData, localData] = await Promise.all([
-      chrome.storage.sync.get([STORAGE_KEYS.currency]),
-      chrome.storage.local.get([STORAGE_KEYS.rates])
-    ]);
-
-    selectedCurrency = sanitizeCurrencyPreference(syncData[STORAGE_KEYS.currency]);
-    rates = normalizeExchangeRates(localData[STORAGE_KEYS.rates]);
+    const stored = await loadStoredSettings();
+    selectedCurrency = stored.currency;
+    rates = stored.rates;
   }
 }
 
 chrome.storage.onChanged.addListener((changes, areaName) => {
   if (areaName === "sync" && changes[STORAGE_KEYS.currency]) {
-    const next = sanitizeCurrencyPreference(changes[STORAGE_KEYS.currency].newValue);
-    selectedCurrency = next;
+    selectedCurrency = sanitizeCurrencyPreference(changes[STORAGE_KEYS.currency].newValue);
     applyToTrackedNodes();
   }
 
   if (areaName === "local" && changes[STORAGE_KEYS.rates]) {
-    const newRates = changes[STORAGE_KEYS.rates].newValue as ExchangeRates | undefined;
-    if (newRates && ratesAreUsable(normalizeExchangeRates(newRates), selectedCurrency)) {
-      rates = normalizeExchangeRates(newRates);
+    const nextRates = normalizeExchangeRates(changes[STORAGE_KEYS.rates].newValue);
+    if (ratesAreUsable(nextRates, selectedCurrency)) {
+      rates = nextRates;
       applyToTrackedNodes();
     }
   }
 });
 
-loadSettingsFromBackground()
-  .then(() => {
-    scanNodeTree(document.body);
-    observeDom();
-  })
-  .catch(() => {
+loadInitialSettings()
+  .catch(() => undefined)
+  .finally(() => {
+    ensureBadgeStyles();
     scanNodeTree(document.body);
     observeDom();
   });

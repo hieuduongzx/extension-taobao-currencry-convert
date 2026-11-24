@@ -1,0 +1,733 @@
+/* Taobao Currency Converter Popup — *2k Standard matching TubeDeck2k */
+
+body {
+  width: 372px;
+  min-height: 260px;
+  overflow: hidden;
+  font-variant-numeric: tabular-nums;
+}
+
+.popup-shell {
+  display: flex;
+  flex-direction: column;
+  width: 372px;
+  background-color: var(--bg);
+  color: var(--text);
+}
+
+/* ===== 1. Fixed 1-line Header (TubeDeck2k standard) ===== */
+.popup-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 12px;
+  background-color: var(--surface);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.popup-brand {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+}
+
+.popup-logo {
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+  flex-shrink: 0;
+  display: block;
+}
+
+.popup-brand-info {
+  min-width: 0;
+}
+
+.popup-title-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.popup-title {
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.popup-status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.popup-status-dot.is-live {
+  background-color: var(--success);
+}
+
+.popup-status-dot.is-manual {
+  background-color: var(--warning);
+}
+
+.popup-status-dot.is-fallback {
+  background-color: var(--text-muted);
+  opacity: 0.65;
+}
+
+.popup-subtitle {
+  font-size: 11.5px;
+  color: var(--text-muted);
+  line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.popup-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.popup-icon-btn {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background-color 0.12s ease, color 0.12s ease;
+}
+
+.popup-icon-btn:hover:not(:disabled) {
+  background-color: var(--surface-2);
+  color: var(--text);
+}
+
+.popup-icon-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* ===== 2. Main Body ===== */
+.popup-body {
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.popup-card {
+  background-color: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+
+.popup-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.popup-section-title {
+  font-size: 10.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.popup-inline-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.popup-toggle-label {
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+/* ===== Currency Picker Dropdown ===== */
+.popup-picker {
+  position: relative;
+}
+
+.popup-picker-trigger {
+  width: 100%;
+  height: 44px;
+  padding: 0 10px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background-color: var(--bg);
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.13s ease, background-color 0.13s ease;
+}
+
+.popup-picker-trigger:hover {
+  border-color: var(--text-muted);
+}
+
+.popup-picker-trigger.is-open {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+
+.popup-symbol-badge {
+  width: 34px;
+  height: 28px;
+  border-radius: 6px;
+  background-color: var(--accent-soft);
+  border: 1px solid var(--accent-border);
+  color: var(--accent);
+  font-size: 12.5px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.popup-picker-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.popup-picker-code {
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.25;
+  color: var(--text);
+}
+
+.popup-picker-name {
+  font-size: 11.5px;
+  color: var(--text-muted);
+  line-height: 1.25;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.popup-chevron {
+  color: var(--text-muted);
+  flex-shrink: 0;
+  display: inline-flex;
+  transition: transform 0.16s ease;
+}
+
+.popup-chevron.is-open {
+  transform: rotate(180deg);
+  color: var(--text);
+}
+
+.popup-dropdown {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(100% + 5px);
+  z-index: 30;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background-color: var(--surface);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.24);
+  overflow: hidden;
+}
+
+.popup-search-wrap {
+  position: relative;
+  padding: 7px 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.popup-search-ic {
+  position: absolute;
+  left: 16px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-muted);
+  pointer-events: none;
+  display: inline-flex;
+}
+
+.popup-search-input {
+  width: 100%;
+  height: 28px;
+  padding: 0 26px 0 26px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background-color: var(--bg);
+  color: var(--text);
+  font-size: 12.5px;
+  outline: none;
+  transition: border-color 0.13s ease;
+}
+
+.popup-search-input:focus {
+  border-color: var(--accent);
+}
+
+.popup-search-input::placeholder {
+  color: var(--text-muted);
+}
+
+.popup-search-clear {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 20px;
+  height: 20px;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.popup-search-clear:hover {
+  background-color: var(--surface-2);
+  color: var(--text);
+}
+
+.popup-dropdown-list {
+  max-height: 186px;
+  overflow-y: auto;
+  padding: 4px;
+}
+
+.popup-dropdown-empty {
+  margin: 0;
+  padding: 18px 12px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.popup-option {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 6px 8px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 0.1s ease;
+}
+
+.popup-option.is-highlighted {
+  background-color: var(--surface-2);
+}
+
+.popup-option.is-selected {
+  background-color: var(--accent-soft);
+}
+
+.popup-option-sym {
+  width: 30px;
+  height: 24px;
+  border-radius: 5px;
+  background-color: var(--surface-2);
+  color: var(--text-muted);
+  font-size: 11.5px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.popup-option.is-selected .popup-option-sym {
+  background-color: var(--accent);
+  color: #ffffff;
+}
+
+.popup-option-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.popup-option-code {
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.popup-option-label {
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1.25;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.popup-option-check {
+  color: var(--accent);
+  display: inline-flex;
+  flex-shrink: 0;
+}
+
+/* ===== Exchange Rate Row inside Card 1 ===== */
+.popup-divider {
+  height: 1px;
+  background-color: var(--border);
+  margin: 1px 0;
+}
+
+.popup-rate-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 32px;
+}
+
+.popup-rate-display {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  flex: 1;
+  flex-wrap: nowrap;
+}
+
+.popup-rate-base {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.popup-rate-arrow {
+  color: var(--text-muted);
+  display: inline-flex;
+  align-self: center;
+  flex-shrink: 0;
+}
+
+.popup-rate-value {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--accent);
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.popup-rate-code {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.popup-rate-edit-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 26px;
+  padding: 0 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background-color: var(--bg);
+  color: var(--text-muted);
+  font-size: 11.5px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background-color 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+}
+
+.popup-rate-edit-btn:hover {
+  background-color: var(--surface-2);
+  color: var(--text);
+  border-color: var(--text-muted);
+}
+
+.popup-rate-form {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+}
+
+.popup-rate-form .ui-input {
+  flex: 1;
+  min-width: 0;
+  height: 28px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.popup-rate-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.popup-rate-meta span {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.popup-mode-pill {
+  display: inline-flex;
+  align-items: center;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  flex-shrink: 0;
+  border: 1px solid var(--border);
+  background-color: var(--surface-2);
+  color: var(--text-muted);
+}
+
+.popup-mode-pill.is-live {
+  background-color: rgba(34, 197, 94, 0.12);
+  border-color: rgba(34, 197, 94, 0.28);
+  color: var(--success);
+}
+
+.popup-mode-pill.is-manual {
+  background-color: rgba(245, 158, 11, 0.14);
+  border-color: rgba(245, 158, 11, 0.30);
+  color: var(--warning);
+}
+
+/* ===== Quick Converter Card ===== */
+.popup-calc-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+}
+
+.popup-calc-input-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.popup-calc-prefix {
+  position: absolute;
+  left: 9px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-muted);
+  pointer-events: none;
+}
+
+.popup-calc-input {
+  width: 100%;
+  height: 34px;
+  padding: 0 8px 0 23px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background-color: var(--bg);
+  color: var(--text);
+  font-size: 13.5px;
+  font-weight: 600;
+  outline: none;
+  transition: border-color 0.13s ease, box-shadow 0.13s ease;
+}
+
+.popup-calc-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+
+.popup-calc-output {
+  height: 34px;
+  padding: 0 8px 0 10px;
+  border-radius: var(--radius);
+  border: 1px solid var(--accent-border);
+  background-color: var(--accent-soft);
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  min-width: 0;
+}
+
+.popup-calc-result {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.popup-copy-btn {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background-color 0.12s ease, color 0.12s ease;
+}
+
+.popup-copy-btn:hover {
+  background-color: var(--surface);
+  color: var(--accent);
+}
+
+.popup-presets {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 5px;
+}
+
+.popup-preset-btn {
+  height: 26px;
+  padding: 0 6px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background-color: var(--bg);
+  color: var(--text-muted);
+  font-size: 11.5px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+}
+
+.popup-preset-btn:hover:not(.is-active) {
+  background-color: var(--surface-2);
+  color: var(--text);
+}
+
+.popup-preset-btn.is-active {
+  border-color: var(--accent-border);
+  background-color: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+/* ===== 3. Clean 1-row Footer (TubeDeck2k standard, zero wrapping) ===== */
+.popup-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px;
+  background-color: var(--surface);
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.popup-footer-status {
+  font-size: 11.5px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.popup-footer-status.is-accent {
+  color: var(--success);
+  font-weight: 500;
+}
+
+.popup-footer-status.is-error {
+  color: var(--danger);
+  font-weight: 500;
+}
+
+.popup-footer-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 7px;
+  border: 1px solid var(--border);
+  background-color: var(--bg);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background-color 0.12s ease, border-color 0.12s ease;
+}
+
+.popup-footer-btn:hover:not(:disabled) {
+  background-color: var(--surface-2);
+}
+
+.popup-footer-btn:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.spin {
+  animation: popup-spin 0.9s linear infinite;
+}
+
+@keyframes popup-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}

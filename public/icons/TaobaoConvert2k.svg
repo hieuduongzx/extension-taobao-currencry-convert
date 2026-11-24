@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bg" gradientUnits="userSpaceOnUse" x1="0" y1="32" x2="0" y2="992">
+      <stop offset="0" stop-color="#2c2c31"/>
+      <stop offset="1" stop-color="#121214"/>
+    </linearGradient>
+    <linearGradient id="acc" gradientUnits="userSpaceOnUse" x1="248" y1="470" x2="776" y2="780">
+      <stop offset="0" stop-color="#fb923c"/>
+      <stop offset="1" stop-color="#f97316"/>
+    </linearGradient>
+    <linearGradient id="wh" gradientUnits="userSpaceOnUse" x1="0" y1="220" x2="0" y2="800">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#e4e4e7"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Squircle base matching TubeDeck2k DNA -->
+  <rect x="32" y="32" width="960" height="960" rx="224" fill="url(#bg)"/>
+  <rect x="36" y="36" width="952" height="952" rx="220" fill="none" stroke="#ffffff" stroke-opacity=".10" stroke-width="8"/>
+
+  <!-- White geometric Y (Yuan body, optically balanced inside 204..820) -->
+  <path
+    d="M294 252 L512 498 L730 252 M512 498 L512 778"
+    fill="none"
+    stroke="url(#wh)"
+    stroke-width="96"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
+
+  <!-- Warm Taobao-orange opposing exchange arrows forming the two ¥ crossbars -->
+  <g fill="none" stroke="url(#acc)" stroke-width="64" stroke-linecap="round" stroke-linejoin="round">
+    <!-- Upper bar: right-pointing exchange arrow -->
+    <path d="M312 548 L724 548"/>
+    <path d="M642 478 L732 548 L642 618"/>
+    <!-- Lower bar: left-pointing exchange arrow -->
+    <path d="M712 690 L300 690"/>
+    <path d="M382 620 L292 690 L382 760"/>
+  </g>
+</svg>
